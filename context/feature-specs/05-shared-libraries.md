@@ -1,5 +1,3 @@
-Read `AGENTS.md`, `context/architecture-context.md`, and `context/code-standards.md` before starting.
-
 Create the **shared libraries** consumed by all microservices and the frontend: shared types,
 constants, and small utilities. This keeps API contracts consistent across service boundaries.
 

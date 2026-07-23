@@ -1,5 +1,3 @@
-Read `AGENTS.md`, `context/architecture-context.md`, and `context/code-standards.md` before starting.
-
 Build the **NestJS API gateway** — the single public entry point. All frontend traffic hits
 the gateway, which authenticates requests and forwards them to the right microservice.
 

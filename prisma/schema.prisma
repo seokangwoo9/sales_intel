@@ -1,0 +1,527 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [vector]
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+/// User roles for RBAC - matches shared/types/enums.ts
+enum Role {
+  ADMIN
+  MANAGER
+  SALES_REP
+  VIEWER
+}
+
+/// Entity types for polymorphic relations - matches shared/types/enums.ts
+enum EntityType {
+  CONTACT
+  COMPANY
+}
+
+/// Email direction tracking - matches shared/types/enums.ts
+enum EmailDirection {
+  INBOUND
+  OUTBOUND
+}
+
+/// Activity types for timeline - matches shared/types/enums.ts
+enum ActivityType {
+  POST
+  EMAIL
+  OWNERSHIP_CHANGE
+  CONTACT_CREATED
+  COMPANY_CREATED
+  CONTACT_UPDATED
+  COMPANY_UPDATED
+}
+
+/// Notification types - matches shared/types/enums.ts
+enum NotificationType {
+  MENTION
+  OWNERSHIP_TRANSFER
+  COMMENT
+  EMAIL
+  SYSTEM
+}
+
+// ============================================
+// CORE MODELS
+// ============================================
+
+/// User - global identity (managed with Better Auth)
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String // hashed by Better Auth
+  avatar    String? // URL to avatar image
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  memberships         Membership[]
+  ownedContacts       Contact[]        @relation("ContactOwner")
+  ownedCompanies      Company[]        @relation("CompanyOwner")
+  posts               Post[]
+  comments            Comment[]
+  mentions            Mention[]
+  notifications       Notification[]
+  aiChats             AiChat[]
+  historyEvents       HistoryEvent[]
+  emailAccounts       EmailAccount[]
+  sentEmails          EmailMessage[]   @relation("EmailSender")
+  transferredContacts Contact[]        @relation("ContactTransferredFrom")
+  transferredCompanies Company[]       @relation("CompanyTransferredFrom")
+
+  @@index([email])
+  @@map("users")
+}
+
+/// Organization - tenant root for multi-tenancy
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  settings  Json?    @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  memberships    Membership[]
+  contacts       Contact[]
+  companies      Company[]
+  posts          Post[]
+  historyEvents  HistoryEvent[]
+  emailMessages  EmailMessage[]
+  emailTemplates EmailTemplate[]
+  embeddings     Embedding[]
+
+  @@index([slug])
+  @@map("organizations")
+}
+
+/// Membership - join table for User ↔ Organization with role
+model Membership {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  role           Role         @default(SALES_REP)
+  joinedAt       DateTime     @default(now())
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([organizationId, role])
+  @@map("memberships")
+}
+
+/// Contact - customer/lead entity (org-scoped)
+model Contact {
+  id             String    @id @default(cuid())
+  organizationId String
+  ownerId        String
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String?
+  title          String? // job title
+  customFields   Json?     @default("{}") // flexible custom data
+  deletedAt      DateTime? // soft delete
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Ownership transfer tracking
+  previousOwnerId String?
+  transferredAt   DateTime?
+
+  // Relations
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner            User              @relation("ContactOwner", fields: [ownerId], references: [id])
+  previousOwner    User?             @relation("ContactTransferredFrom", fields: [previousOwnerId], references: [id])
+  companies        ContactCompany[]
+  posts            Post[]
+  historyEvents    HistoryEvent[]
+  emailMessages    EmailMessage[]
+  embeddings       Embedding[]
+
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, ownerId])
+  @@index([email])
+  @@index([organizationId, deletedAt])
+  @@map("contacts")
+}
+
+/// Company - business entity (org-scoped)
+model Company {
+  id             String    @id @default(cuid())
+  organizationId String
+  ownerId        String
+  name           String
+  domain         String? // website domain
+  website        String?
+  industry       String?
+  parentId       String? // self-relation for hierarchy
+  customFields   Json?     @default("{}") // flexible custom data
+  deletedAt      DateTime? // soft delete
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Ownership transfer tracking
+  previousOwnerId String?
+  transferredAt   DateTime?
+
+  // Relations
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner            User              @relation("CompanyOwner", fields: [ownerId], references: [id])
+  previousOwner    User?             @relation("CompanyTransferredFrom", fields: [previousOwnerId], references: [id])
+  parent           Company?          @relation("CompanyHierarchy", fields: [parentId], references: [id])
+  subsidiaries     Company[]         @relation("CompanyHierarchy")
+  contacts         ContactCompany[]
+  posts            Post[]
+  historyEvents    HistoryEvent[]
+  emailMessages    EmailMessage[]
+  embeddings       Embedding[]
+
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, ownerId])
+  @@index([parentId])
+  @@index([domain])
+  @@index([organizationId, deletedAt])
+  @@map("companies")
+}
+
+/// ContactCompany - many-to-many join for contacts in companies
+model ContactCompany {
+  id        String   @id @default(cuid())
+  contactId String
+  companyId String
+  role      String? // role/title at this company
+  isPrimary Boolean  @default(false) // primary company for this contact
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, companyId])
+  @@index([contactId])
+  @@index([companyId])
+  @@map("contact_companies")
+}
+
+/// Post / Activity - timeline entries (org-scoped)
+model Post {
+  id             String       @id @default(cuid())
+  organizationId String
+  authorId       String
+  entityType     EntityType // CONTACT or COMPANY
+  entityId       String // polymorphic reference
+  activityType   ActivityType @default(POST)
+  title          String?
+  body           String // rich text content
+  metadata       Json?        @default("{}") // additional structured data
+  deletedAt      DateTime? // soft delete
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  author       User         @relation(fields: [authorId], references: [id])
+  contact      Contact?     @relation(fields: [entityId], references: [id], onDelete: Cascade, map: "post_contact_fk")
+  company      Company?     @relation(fields: [entityId], references: [id], onDelete: Cascade, map: "post_company_fk")
+  comments     Comment[]
+  mentions     Mention[]
+  attachments  Attachment[]
+
+  @@index([organizationId])
+  @@index([authorId])
+  @@index([entityType, entityId])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, entityType, entityId])
+  @@map("posts")
+}
+
+/// Comment - comments on posts
+model Comment {
+  id        String    @id @default(cuid())
+  postId    String
+  authorId  String
+  body      String // text content
+  deletedAt DateTime? // soft delete
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relations
+  post        Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author      User         @relation(fields: [authorId], references: [id])
+  mentions    Mention[]
+  attachments Attachment[]
+
+  @@index([postId])
+  @@index([authorId])
+  @@index([postId, createdAt])
+  @@map("comments")
+}
+
+/// Mention - links posts/comments to mentioned users
+model Mention {
+  id        String   @id @default(cuid())
+  userId    String // user who was mentioned
+  postId    String?
+  commentId String?
+  createdAt DateTime @default(now())
+
+  // Relations
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post    Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([postId])
+  @@index([commentId])
+  @@map("mentions")
+}
+
+/// Attachment - file metadata (polymorphic parent)
+model Attachment {
+  id           String   @id @default(cuid())
+  filename     String
+  mimeType     String
+  size         Int // bytes
+  path         String // filesystem path or S3 key
+  postId       String?
+  commentId    String?
+  emailId      String?
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  // Relations
+  post         Post?         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment      Comment?      @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  emailMessage EmailMessage? @relation(fields: [emailId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([commentId])
+  @@index([emailId])
+  @@map("attachments")
+}
+
+/// HistoryEvent / AuditLog - immutable change tracking (org-scoped)
+model HistoryEvent {
+  id             String     @id @default(cuid())
+  organizationId String
+  actorId        String // user who performed the action
+  action         String // e.g., "CONTACT_CREATED", "OWNERSHIP_TRANSFERRED"
+  entityType     EntityType
+  entityId       String
+  diff           Json? // before/after snapshot
+  metadata       Json?      @default("{}") // additional context
+  timestamp      DateTime   @default(now())
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User         @relation(fields: [actorId], references: [id])
+  contact      Contact?     @relation(fields: [entityId], references: [id], onDelete: Cascade, map: "history_contact_fk")
+  company      Company?     @relation(fields: [entityId], references: [id], onDelete: Cascade, map: "history_company_fk")
+
+  @@index([organizationId])
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([organizationId, timestamp])
+  @@index([organizationId, entityType, entityId])
+  @@map("history_events")
+}
+
+/// EmailAccount - per-user or per-org mail configuration
+/// NOTE: credentials should be encrypted at rest by the email-service
+model EmailAccount {
+  id             String   @id @default(cuid())
+  userId         String
+  email          String
+  displayName    String?
+  smtpHost       String
+  smtpPort       Int
+  smtpUser       String
+  smtpPassword   String // MUST be encrypted by email-service before storage
+  imapHost       String
+  imapPort       Int
+  imapUser       String
+  imapPassword   String // MUST be encrypted by email-service before storage
+  isActive       Boolean  @default(true)
+  lastSyncAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages     EmailMessage[] @relation("EmailAccountMessages")
+
+  @@unique([userId, email])
+  @@index([userId])
+  @@index([email])
+  @@map("email_accounts")
+}
+
+/// EmailMessage - sent/received emails (org-scoped)
+model EmailMessage {
+  id             String         @id @default(cuid())
+  organizationId String
+  direction      EmailDirection
+  fromAddress    String
+  toAddresses    String[] // array of recipient emails
+  ccAddresses    String[]       @default([])
+  bccAddresses   String[]       @default([])
+  subject        String
+  body           String         @db.Text // full email body (HTML or plain text)
+  threadId       String? // for email threading
+  inReplyTo      String? // email ID this is replying to
+  messageId      String? // external email message ID
+  senderId       String? // user who sent (for outbound)
+  accountId      String? // email account used
+  entityType     EntityType? // linked entity
+  entityId       String? // linked entity ID
+  sentAt         DateTime?
+  receivedAt     DateTime?
+  readAt         DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Relations
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sender       User?         @relation("EmailSender", fields: [senderId], references: [id])
+  account      EmailAccount? @relation("EmailAccountMessages", fields: [accountId], references: [id])
+  thread       EmailMessage? @relation("EmailThread", fields: [threadId], references: [id])
+  replies      EmailMessage[] @relation("EmailThread")
+  contact      Contact?      @relation(fields: [entityId], references: [id], onDelete: SetNull, map: "email_contact_fk")
+  company      Company?      @relation(fields: [entityId], references: [id], onDelete: SetNull, map: "email_company_fk")
+  attachments  Attachment[]
+
+  @@index([organizationId])
+  @@index([senderId])
+  @@index([accountId])
+  @@index([threadId])
+  @@index([entityType, entityId])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, direction])
+  @@index([messageId])
+  @@map("email_messages")
+}
+
+/// EmailTemplate - reusable email templates (org-scoped)
+model EmailTemplate {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  subject        String
+  body           String   @db.Text // template body with merge fields (e.g., {{firstName}})
+  metadata       Json?    @default("{}") // template variables definition
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("email_templates")
+}
+
+/// Notification - per-user notifications
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  payload   Json?            @default("{}") // additional structured data
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+/// AiChat - persistent chat session per user
+model AiChat {
+  id        String   @id @default(cuid())
+  userId    String   @unique // one chat per user
+  title     String?
+  metadata  Json?    @default("{}") // session metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AiMessage[]
+
+  @@index([userId])
+  @@map("ai_chats")
+}
+
+/// AiMessage - individual messages in AI chat
+model AiMessage {
+  id         String   @id @default(cuid())
+  chatId     String
+  role       String // "user", "assistant", "system"
+  content    String   @db.Text
+  tokenUsage Int?     @default(0)
+  metadata   Json?    @default("{}") // model used, temperature, etc.
+  createdAt  DateTime @default(now())
+
+  // Relations
+  chat AiChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
+  @@index([chatId, createdAt])
+  @@map("ai_messages")
+}
+
+/// Embedding - pgvector embeddings for RAG
+model Embedding {
+  id             String                  @id @default(cuid())
+  organizationId String
+  entityType     EntityType
+  entityId       String
+  chunkText      String                  @db.Text // text that was embedded
+  vector         Unsupported("vector(1536)")? // pgvector column - 1536 dimensions for OpenAI text-embedding-3-small/ada-002
+  metadata       Json?                   @default("{}") // source context
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contact      Contact?     @relation(fields: [entityId], references: [id], onDelete: Cascade, map: "embedding_contact_fk")
+  company      Company?     @relation(fields: [entityId], references: [id], onDelete: Cascade, map: "embedding_company_fk")
+
+  @@index([organizationId])
+  @@index([entityType, entityId])
+  @@index([organizationId, entityType, entityId])
+  @@map("embeddings")
+}

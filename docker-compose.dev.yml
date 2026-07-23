@@ -31,8 +31,45 @@ services:
       timeout: 3s
       retries: 5
 
-  # TODO: Service containers will be added in later specs
-  # api-gateway:
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: salesintel-api-gateway
+    environment:
+      NODE_ENV: development
+      API_GATEWAY_PORT: 4000
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE}
+      LOG_LEVEL: ${LOG_LEVEL}
+      # Downstream service URLs
+      AUTH_SERVICE_URL: http://auth-service:4001
+      ORGANIZATION_SERVICE_URL: http://organization-service:4002
+      CONTACT_SERVICE_URL: http://contact-service:4003
+      COMPANY_SERVICE_URL: http://company-service:4004
+      ACTIVITY_SERVICE_URL: http://activity-service:4005
+      EMAIL_SERVICE_URL: http://email-service:4006
+      AI_SERVICE_URL: http://ai-service:4007
+      ANALYTICS_SERVICE_URL: http://analytics-service:4008
+      NOTIFICATION_SERVICE_URL: http://notification-service:4009
+      FILE_SERVICE_URL: http://file-service:4010
+      HISTORY_SERVICE_URL: http://history-service:4011
+    ports:
+      - "4000:4000"
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # TODO: Other service containers will be added in later specs
   # auth-service:
   # organization-service:
   # contact-service:
