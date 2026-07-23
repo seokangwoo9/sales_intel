@@ -1,5 +1,4 @@
-Read `AGENTS.md`, `context/architecture-context.md`, and `context/code-standards.md` before starting.
-Also read the Prisma section of any relevant docs. This spec defines the **entire database
+Read the Prisma section of any relevant docs. This spec defines the **entire database
 schema** — the shared data foundation every service builds on.
 
 ## Scope of this unit

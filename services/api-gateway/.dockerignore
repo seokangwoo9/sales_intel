@@ -1,0 +1,8 @@
+# API Gateway
+
+node_modules/
+dist/
+npm-debug.log
+.env
+.env.local
+*.log
