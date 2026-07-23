@@ -46,6 +46,19 @@ Update this file whenever the current phase, active feature, or implementation s
   - Created `.env.local` with `NEXT_PUBLIC_AUTH_URL` pointing to future auth-service (spec 08)
   - Verified: `npm run build` and `npm run lint` pass without errors
 
+- 04-monorepo-docker: Backend monorepo structure and containerized infrastructure
+  - Created `services/` directory with 12 microservice folders: api-gateway, auth-service, organization-service, contact-service, company-service, activity-service, email-service, ai-service, analytics-service, notification-service, file-service, history-service
+  - Added README.md to each service folder documenting its responsibility from architecture-context.md
+  - Created `services/README.md` explaining microservices layout and communication patterns
+  - Created `docker-compose.dev.yml` with PostgreSQL (pgvector/pgvector:pg16) and Redis 7 containers
+  - PostgreSQL container configured with named volume, health checks, and exposed on port 5432
+  - Redis container configured with named volume, health checks, and exposed on port 6379
+  - Updated `.env.example` with comprehensive environment variable documentation covering all services, database, Redis, auth, AI, email, file storage, rate limiting, logging, and CORS
+  - Verified `.env` is gitignored (covered by `.env*` pattern)
+  - Verified Docker Compose starts successfully: both containers healthy
+  - Verified `npm run build` still passes without errors
+  - Service containers commented out in docker-compose.dev.yml with TODO for later specs
+
 ## In Progress
 
 - None.

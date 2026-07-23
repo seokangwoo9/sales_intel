@@ -1,5 +1,3 @@
-Read `AGENTS.md`, `context/architecture-context.md`, and `context/code-standards.md` before starting.
-
 Set up the **backend monorepo structure and containerized infrastructure**. This unit creates
 the `services/` layout and Docker Compose — no service business logic yet.
 

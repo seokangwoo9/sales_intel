@@ -1,0 +1,50 @@
+services:
+  # PostgreSQL with pgvector extension
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: salesintel-postgres
+    environment:
+      POSTGRES_DB: salesintel_dev
+      POSTGRES_USER: salesintel
+      POSTGRES_PASSWORD: salesintel_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U salesintel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and queue
+  redis:
+    image: redis:7-alpine
+    container_name: salesintel-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # TODO: Service containers will be added in later specs
+  # api-gateway:
+  # auth-service:
+  # organization-service:
+  # contact-service:
+  # company-service:
+  # activity-service:
+  # email-service:
+  # ai-service:
+  # analytics-service:
+  # notification-service:
+  # file-service:
+  # history-service:
+
+volumes:
+  postgres_data:
+  redis_data:
