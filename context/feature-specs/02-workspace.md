@@ -23,7 +23,7 @@ Requirements:
 
 - opening it should not push page content
 - slides in from the left
-- accepts `isOpen` prop
+- accepts both `isOpen` and `onClose` prop
 - when sidebar is open, show icon+description, otherwise, icon.
 - navigation for search, settings.
 - both navigation button show empty placeholder state

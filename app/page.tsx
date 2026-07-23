@@ -1,7 +1,14 @@
-export default function Home() {
-  return (
-    <div className="flex min-h-screen items-center justify-center">
-      SalesIntel
-    </div>
-  );
+import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+
+export default async function Home() {
+  // Check if user has session cookie
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("better-auth.session_token");
+
+  if (sessionCookie?.value) {
+    redirect("/workspace");
+  } else {
+    redirect("/sign-in");
+  }
 }
